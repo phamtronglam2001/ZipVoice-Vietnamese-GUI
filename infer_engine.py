@@ -37,6 +37,7 @@ from zipvoice.utils.feature import VocosFbank  # noqa: E402
 SAMPLING_RATE = 24000
 FEAT_SCALE = 0.1
 TARGET_RMS = 0.1
+MIN_VOCODER_MEL_FRAMES = 1
 
 logger = logging.getLogger("zipvoice_gui")
 
@@ -164,6 +165,15 @@ class ZipVoiceEngine:
                 num_step=num_step,
                 guidance_scale=guidance_scale,
             )
+
+            mel_frames = int(pred_features.size(1))
+            if mel_frames < MIN_VOCODER_MEL_FRAMES:
+                logger.warning(
+                    "skip vocoder: mel frames=%d (chunk %d chars)",
+                    mel_frames,
+                    len(text),
+                )
+                return torch.zeros(1, 0, dtype=torch.float32)
 
             pred_features = pred_features.permute(0, 2, 1) / FEAT_SCALE
             wav = self.vocoder.decode(pred_features).squeeze(1).clamp(-1, 1)

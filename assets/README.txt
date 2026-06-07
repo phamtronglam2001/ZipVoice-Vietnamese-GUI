@@ -24,7 +24,17 @@ Sau khi sửa JSON, bấm "Làm mới danh sách" trên GUI.
 
 Chuẩn hóa text (GUI): pipeline tối đa 3 bước — VieNeu, Cấu trúc TTS
 (ngoặc→phẩy, số+chấm→xuống dòng), vinorm, vietnormalizer, sea-g2p.
-Xem README.md / README_EN.md.
+
+Checkpoint TTS: hynt/ZipVoice-Vietnamese-2500h — Nguyen Thien Hy (hynt)
+  https://huggingface.co/hynt/ZipVoice-Vietnamese-2500h
+ZipVoice gốc: https://github.com/k2-fsa/ZipVoice
+
+Nguồn GitHub chuẩn hóa text (README.md / README_EN.md):
+  VieNeu (port)     https://github.com/pnnbao97/VieNeu-TTS
+  Cấu trúc TTS      period_linebreak.py — mã trong repo này
+  vinorm            https://github.com/NoahDrisort/vinorm
+  vietnormalizer    https://github.com/nghimestudio/vietnormalizer
+  sea-g2p           https://github.com/pnnbao97/sea-g2p
 
 LICENSE: chỉ nghiên cứu / giáo dục / phi lợi nhuận — cấm thương mại.
-
+
