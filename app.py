@@ -64,7 +64,11 @@ from infer_engine import ZipVoiceEngine  # noqa: E402
 
 from utils import (  # noqa: E402
 
-    NORMALIZE_BACKENDS,
+    NORMALIZE_STEP_CHOICES,
+
+    build_normalize_pipeline,
+
+    format_normalize_pipeline,
 
     join_tts_audio_chunks,
 
@@ -75,6 +79,8 @@ from utils import (  # noqa: E402
     read_text_file,
 
     save_spectrogram,
+
+    preview_normalize_output,
 
     split_text_for_tts,
 
@@ -161,7 +167,43 @@ def _resolve_ref_path(ref_audio_path: str | None, asset_voice_id: str) -> str | 
     return None
 
 
+def preview_normalize(
 
+    gen_text: str,
+
+    norm_step1: str,
+
+    norm_step2: str,
+
+    norm_step3: str,
+
+    chunk_max_chars: int,
+
+) -> str:
+
+    try:
+
+        return preview_normalize_output(
+
+            gen_text,
+
+            norm_step1,
+
+            norm_step2,
+
+            norm_step3,
+
+            chunk_max_chars=int(chunk_max_chars),
+
+        )
+
+    except ValueError as exc:
+
+        raise gr.Error(str(exc)) from exc
+
+    except ImportError as exc:
+
+        raise gr.Error(str(exc)) from exc
 
 
 def infer_tts(
@@ -178,7 +220,11 @@ def infer_tts(
 
     export_format: str,
 
-    normalize_backend: str,
+    norm_step1: str,
+
+    norm_step2: str,
+
+    norm_step3: str,
 
     chunk_max_chars: int,
 
@@ -220,7 +266,17 @@ def infer_tts(
 
     try:
 
+        try:
+
+            norm_pipeline = build_normalize_pipeline(norm_step1, norm_step2, norm_step3)
+
+        except ValueError as exc:
+
+            raise gr.Error(str(exc)) from exc
+
         voice = get_voice_by_id(asset_voice_id, _voice_cache)
+
+        norm_label = format_normalize_pipeline(norm_pipeline)
 
         logger.info(
 
@@ -234,7 +290,7 @@ def infer_tts(
 
             export_format,
 
-            normalize_backend,
+            norm_label,
 
             chunk_max_chars,
 
@@ -284,9 +340,9 @@ def infer_tts(
 
 
 
-            prompt_normalized = prepare_tts_text(resolved_ref_text, normalize_backend)
+            prompt_normalized = prepare_tts_text(resolved_ref_text, norm_pipeline)
 
-            normalized = prepare_tts_text(tts_chunk.text, normalize_backend)
+            normalized = prepare_tts_text(tts_chunk.text, norm_pipeline)
 
             if not normalized_preview:
 
@@ -343,8 +399,6 @@ def infer_tts(
         save_spectrogram(final_wave, spec_path)
 
 
-
-        norm_label = NORMALIZE_BACKENDS.get(normalize_backend, normalize_backend)
 
         est_min = max(1, int(len(tts_chunks) * 8 / 60))
 
@@ -508,25 +562,53 @@ Giọng mẫu từ thư mục `assets/` · File xuất lưu vào `output/`
 
 
 
+        _norm_choices = [(label, key) for key, label in NORMALIZE_STEP_CHOICES.items()]
+
         with gr.Row():
 
-            normalize_backend = gr.Radio(
+            with gr.Column(scale=2):
 
-                label="Chuẩn hóa text (trước Espeak)",
+                gr.Markdown(
 
-                choices=[(label, key) for key, label in NORMALIZE_BACKENDS.items()],
+                    "### Chuẩn hóa text (pipeline, tối đa 3 bước)\n"
 
-                value="vinorm",
+                    "Áp dụng lần lượt A → B → C. Cả 3 thư viện chỉ trả về **text** "
 
-                info=(
+                    "(không phoneme) nên có thể xếp chuỗi."
 
-                    "ZipVoice chỉ dùng Normalizer của sea-g2p (không G2P). "
+                )
 
-                    "pip install vietnormalizer sea-g2p"
+                with gr.Row():
 
-                ),
+                    norm_step1 = gr.Dropdown(
 
-            )
+                        label="Bước 1",
+
+                        choices=_norm_choices,
+
+                        value="vinorm",
+
+                    )
+
+                    norm_step2 = gr.Dropdown(
+
+                        label="Bước 2 (tuỳ chọn)",
+
+                        choices=_norm_choices,
+
+                        value="none",
+
+                    )
+
+                    norm_step3 = gr.Dropdown(
+
+                        label="Bước 3 (tuỳ chọn)",
+
+                        choices=_norm_choices,
+
+                        value="none",
+
+                    )
 
             chunk_max_chars = gr.Slider(
 
@@ -543,6 +625,34 @@ Giọng mẫu từ thư mục `assets/` · File xuất lưu vào `output/`
                 info="ZipVoice ~100 token/chunk. 135 mặc định; giảm nếu OOM.",
 
             )
+
+
+
+        with gr.Row():
+
+            preview_norm_btn = gr.Button(
+
+                "Xem trước chuẩn hóa (ô 3)",
+
+                size="sm",
+
+                variant="secondary",
+
+            )
+
+        norm_preview = gr.Textbox(
+
+            label="Kết quả pipeline chuẩn hóa — chạy trước khi TTS",
+
+            lines=12,
+
+            max_lines=24,
+
+            interactive=False,
+
+            placeholder="Chọn pipeline → nhập văn bản ô 3 → bấm nút trên",
+
+        )
 
 
 
@@ -602,6 +712,16 @@ Giọng mẫu từ thư mục `assets/` · File xuất lưu vào `output/`
 
 
 
+        preview_norm_btn.click(
+
+            preview_normalize,
+
+            inputs=[gen_text, norm_step1, norm_step2, norm_step3, chunk_max_chars],
+
+            outputs=[norm_preview],
+
+        )
+
         btn.click(
 
             infer_tts,
@@ -620,7 +740,11 @@ Giọng mẫu từ thư mục `assets/` · File xuất lưu vào `output/`
 
                 export_format,
 
-                normalize_backend,
+                norm_step1,
+
+                norm_step2,
+
+                norm_step3,
 
                 chunk_max_chars,
 
