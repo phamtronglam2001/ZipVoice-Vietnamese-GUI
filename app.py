@@ -572,9 +572,9 @@ Giọng mẫu từ thư mục `assets/` · File xuất lưu vào `output/`
 
                     "### Chuẩn hóa text (pipeline, tối đa 3 bước)\n"
 
-                    "Áp dụng lần lượt A → B → C. **VieNeu** = dọn punctuation (built-in). "
+                    "Built-in: **VieNeu**, **Cấu trúc TTS** — `mẫu (mẹ)`→`mẫu, mẹ` (ngắt hơi); "
 
-                    "vinorm/sea-g2p/vietnormalizer = NSW (cần pip). Không trùng bước."
+                    "`một. đoạn sau`→xuống dòng + nghỉ ~1s. NSW: vinorm/sea-g2p (pip)."
 
                 )
 
@@ -596,7 +596,7 @@ Giọng mẫu từ thư mục `assets/` · File xuất lưu vào `output/`
 
                         choices=_norm_choices,
 
-                        value="none",
+                        value="period_break",
 
                     )
 
@@ -688,7 +688,7 @@ Giọng mẫu từ thư mục `assets/` · File xuất lưu vào `output/`
 
 Ô 2 = lời trong file giọng mẫu (**bắt buộc**) · Ô 3 = văn bản mới hoặc upload `.txt`
 
-**Văn bản dài:** chia theo đoạn (`\\n`) → câu → gộp đến max chunk; nghỉ 0.35s/câu, 0.65s/đoạn, 1.2s/chương.
+**Cấu trúc TTS:** ngoặc `()` `[]` `{}` → phẩy · `một.` `2.` → xuống dòng (~1s nghỉ). Nghỉ: 0.35s/câu, 0.65s/đoạn, 1.2s/chương.
 
             """
 
