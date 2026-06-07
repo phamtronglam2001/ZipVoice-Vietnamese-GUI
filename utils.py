@@ -631,7 +631,8 @@ NORMALIZE_ADD_CHOICES: dict[str, str] = {
 }
 
 DEFAULT_NORMALIZE_PIPELINE: list[str] = []
-AUDIOBOOK_PRESET_PIPELINE: list[str] = ["vieneu", "period_break", "vinorm"]
+# Full pipeline: all add-dropdown steps, bottom-to-top UI order (sea_g2p runs first).
+AUDIOBOOK_PRESET_PIPELINE: list[str] = list(reversed(list(NORMALIZE_ADD_CHOICES)))
 CHECKPOINT_SUBDIR = "latest"
 
 _sea_g2p_normalizer = None

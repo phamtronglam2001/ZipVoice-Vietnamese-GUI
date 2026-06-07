@@ -1322,6 +1322,24 @@ Giọng mẫu từ thư mục `assets/` · File xuất lưu vào `output/`
 
                     )
 
+                    pipeline_quick_save_name = gr.Textbox(
+
+                        label="Tên lưu preset",
+
+                        placeholder="vd: sach_ai_vy",
+
+                        scale=2,
+
+                        min_width=120,
+
+                    )
+
+                    pipeline_quick_save_btn = gr.Button(
+
+                        "Lưu preset", size="sm", min_width=90
+
+                    )
+
                 norm_pipeline_display = gr.Markdown(
 
                     value=format_normalize_pipeline_list([])
