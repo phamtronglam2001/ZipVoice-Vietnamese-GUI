@@ -572,9 +572,9 @@ Giọng mẫu từ thư mục `assets/` · File xuất lưu vào `output/`
 
                     "### Chuẩn hóa text (pipeline, tối đa 3 bước)\n"
 
-                    "Áp dụng lần lượt A → B → C. Cả 3 thư viện chỉ trả về **text** "
+                    "Áp dụng lần lượt A → B → C. **VieNeu** = dọn punctuation (built-in). "
 
-                    "(không phoneme) nên có thể xếp chuỗi."
+                    "vinorm/sea-g2p/vietnormalizer = NSW (cần pip). Không trùng bước."
 
                 )
 
@@ -586,7 +586,7 @@ Giọng mẫu từ thư mục `assets/` · File xuất lưu vào `output/`
 
                         choices=_norm_choices,
 
-                        value="vinorm",
+                        value="vieneu",
 
                     )
 
