@@ -12,10 +12,13 @@ assets/*
 !assets/ref_info.json
 !assets/.gitkeep
 !assets/example/
+!assets/ref_audio/
+!assets/ref_audio/**
 data/ref_audio/*
 !data/ref_audio/.gitkeep
 *.png
 *.wav
+!assets/ref_audio/*.wav
 *.mp3
 .install_mode
 logs/
