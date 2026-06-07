@@ -116,6 +116,8 @@ from utils import (  # noqa: E402
 
     parse_input_mode,
 
+    normalize_full_document,
+
     prepare_for_tts,
 
     prepare_tts_text,
@@ -762,9 +764,13 @@ def infer_tts(
 
         engine = ZipVoiceEngine.get()
 
+        normalized_doc = normalize_full_document(
+            gen_text, norm_pipeline, tts_input_mode
+        )
+
         tts_chunks = split_text_for_tts(
 
-            gen_text,
+            normalized_doc,
 
             max_chars=int(chunk_max_chars),
 
@@ -894,7 +900,7 @@ def infer_tts(
 
             normalized = prepare_for_tts(
 
-                tts_chunk.text, norm_pipeline, tts_input_mode
+                tts_chunk.text, norm_pipeline, tts_input_mode, already_normalized=True
 
             )
 

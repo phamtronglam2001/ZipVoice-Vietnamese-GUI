@@ -22,8 +22,10 @@ audio_path tìm theo thứ tự:
 
 Sau khi sửa JSON, bấm "Làm mới danh sách" trên GUI.
 
-Chuẩn hóa text (GUI): pipeline tối đa 3 bước — VieNeu, Cấu trúc TTS
-(ngoặc→phẩy, số+chấm→xuống dòng), vinorm, vietnormalizer, sea-g2p.
+Chuẩn hóa text (GUI): pipeline tuần tự (không giới hạn số bước) —
+VieNeu, Gộp PDF (join_soft_breaks), Xuống dòng→câu (newline_sentence),
+Cấu trúc TTS (ngoặc→phẩy, số+chấm→xuống dòng), vinorm, vietnormalizer, sea-g2p.
+TTS: chuẩn hóa toàn văn bản trước, rồi chia chunk.
 
 Checkpoint TTS: hynt/ZipVoice-Vietnamese-2500h — Nguyen Thien Hy (hynt)
   https://huggingface.co/hynt/ZipVoice-Vietnamese-2500h

@@ -30,7 +30,15 @@ PRESETS_DIR = ROOT / "profiles"
 SCHEMA_VERSION = 1
 
 VALID_PIPELINE_STEPS = frozenset(
-    {"vieneu", "period_break", "vinorm", "vietnormalizer", "sea_g2p"}
+    {
+        "vieneu",
+        "join_soft_breaks",
+        "newline_sentence",
+        "period_break",
+        "vinorm",
+        "vietnormalizer",
+        "sea_g2p",
+    }
 )
 
 

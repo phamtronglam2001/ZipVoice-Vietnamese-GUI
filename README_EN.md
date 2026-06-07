@@ -149,18 +149,24 @@ Environment check, export `text_encoder.onnx` / `fm_decoder.onnx` (+ INT8), PyTo
 
 ## Normalization pipeline (ordered steps)
 
+Add, remove, and reorder steps on the GUI. **Each step receives the previous step's output** (`text₀ → step₁ → text₁ → …`). No step-count limit; duplicate backends are skipped.
+
 | Backend | pip? | Role |
 |---------|------|------|
 | **VieNeu** | No | Port of [pnnbao97/VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS) `core_utils` |
-| **TTS structure** | No | `period_linebreak.py` — brackets→commas; list line breaks |
+| **Join PDF line breaks** | No | `join_soft_breaks` — merge short lowercase lines (OCR/PDF mid-sentence wraps) |
+| **Newline → sentence** | No | `newline_sentence` — append `.` before line breaks: `Chương 1\nNội dung` → `Chương 1.\nNội dung` |
+| **TTS structure** | No | `period_break` — brackets→commas; `một. next` → `một.\nnext` (`period_linebreak.py`) |
 | **vinorm** | Yes | [NoahDrisort/vinorm](https://github.com/NoahDrisort/vinorm) |
 | **vietnormalizer** | Yes | [nghimestudio/vietnormalizer](https://github.com/nghimestudio/vietnormalizer) |
 | **sea-g2p Normalizer** | Yes | [pnnbao97/sea-g2p](https://github.com/pnnbao97/sea-g2p) — Normalizer only |
 | **None** | — | Skip step |
 
-**GUI default:** empty pipeline (light punctuation cleanup). **Audiobook preset** → VieNeu + TTS structure + vinorm.
+**GUI default:** empty pipeline (light punctuation cleanup). **Audiobook preset** → VieNeu → TTS structure → vinorm.
 
-**Suggested for books:** `VieNeu → TTS structure → vinorm` (or sea-g2p).
+**Suggested for books:** `VieNeu → TTS structure → vinorm` (or sea-g2p). For PDF/OCR text, try `join_soft_breaks` before VieNeu; for chapter headings, add `newline_sentence`.
+
+**TTS / preview flow:** normalize the **full document** once (`normalize_full_document`) → **split** (`split_text_for_tts`) → per-chunk light cleanup only (pipeline not re-run). **Preview normalization** and **full normalized text** show the chained pipeline output with preserved `\n` and added periods.
 
 All steps output plain text. ZipVoice phonemizes via Espeak separately — safe to chain.
 
