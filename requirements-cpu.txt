@@ -1,0 +1,28 @@
+# CPU-only deps (torch/torchaudio installed separately via PyTorch CPU index)
+lhotse
+tensorboard
+vocos
+safetensors
+gradio>=4.44.0
+huggingface_hub
+pydub
+librosa
+matplotlib
+numpy>=1.24.0,<=1.26.4
+scipy
+soundfile
+tqdm>=4.65.0
+ema_pytorch>=0.5.0
+x_transformers>=1.31.14
+torchdiffeq
+cn2an
+inflect
+unidecode
+pypinyin
+jieba
+
+# Text normalization (GUI: chọn 1 trong các backend)
+vinorm
+vietnormalizer
+sea-g2p>=0.7.5
+
