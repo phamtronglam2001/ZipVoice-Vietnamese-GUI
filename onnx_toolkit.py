@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import tempfile
 import time
 import traceback
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ from onnx_quant import (
     QuantMode,
     export_quant_variants,
     format_sizes,
+    needed_fp32_baselines,
     normalize_quant_mode,
     onnx_filenames,
     onnx_ready_for_mode,
@@ -160,6 +162,25 @@ def onnx_ready(
     return onnx_ready_for_mode(ONNX_DIR, mode, mixed)
 
 
+def onnx_ready_report() -> str:
+    """Markdown summary of quant variant readiness for GUI."""
+    from onnx_quant import missing_onnx_files, quant_readiness_hint
+
+    lines = ["**Quant readiness:**"]
+    for mode in QUANT_MODE_CHOICES:
+        mixed = DEFAULT_MIXED_CONFIG if mode == "mixed" else None
+        missing = missing_onnx_files(ONNX_DIR, mode, mixed)
+        ready = not missing
+        lines.append(f"- ONNX **{mode}** ready: **{ready}**")
+        if not ready:
+            hint = quant_readiness_hint(mode, missing)
+            if hint:
+                lines.append(f"  - {hint}")
+            if missing:
+                lines.append(f"  - Missing: `{', '.join(missing)}`")
+    return "\n".join(lines)
+
+
 def _import_zipvoice_onnx_stack():
     import torch
     import torchaudio
@@ -200,6 +221,7 @@ def export_zipvoice_onnx(
     *,
     export_int8: bool | None = None,
     mixed_config: dict[str, QuantComponent] | None = None,
+    keep_quant_only: bool = True,
 ) -> ExportResult:
     """Export text_encoder + fm_decoder ONNX from local Vietnamese checkpoint."""
     ok, dep_msg = _check_onnxruntime()
@@ -247,20 +269,34 @@ def export_zipvoice_onnx(
         model.eval()
         convert_scaled_to_non_scaled(model, inplace=True, is_onnx=True)
 
-        text_encoder_file = ONNX_DIR / "text_encoder.onnx"
-        fm_decoder_file = ONNX_DIR / "fm_decoder.onnx"
+        use_temp_fp32 = mode != "fp32" and keep_quant_only
+        fp32_dir = ONNX_DIR
+        temp_ctx = None
+        if use_temp_fp32:
+            temp_ctx = tempfile.TemporaryDirectory(prefix="zipvoice_onnx_fp32_")
+            fp32_dir = Path(temp_ctx.name)
+            step("[3/6] Export text_encoder (FP32 → temp, không ghi ra models/onnx/) ...")
+        else:
+            step("[3/6] Export text_encoder.onnx ...")
 
-        step("[3/6] Export text_encoder.onnx ...")
+        text_encoder_file = fp32_dir / "text_encoder.onnx"
+        fm_decoder_file = fp32_dir / "fm_decoder.onnx"
+
         zv["export_text_encoder"](zv["OnnxTextModel"](model=model), str(text_encoder_file))
-        step("[4/6] Export fm_decoder.onnx ...")
+
+        if not use_temp_fp32:
+            step("[4/6] Export fm_decoder.onnx ...")
+        else:
+            step("[4/6] Export fm_decoder (FP32 → temp) ...")
         zv["export_fm_decoder"](
             zv["OnnxFlowMatchingModel"](model=model, distill=False),
             str(fm_decoder_file),
         )
 
-        created = [text_encoder_file.name, fm_decoder_file.name]
+        mixed_cfg = mixed if mode == "mixed" else None
 
         if mode == "fp32":
+            created = [text_encoder_file.name, fm_decoder_file.name]
             step("[5/6] Chỉ FP32 — không tạo bản quant.")
             write_quant_manifest(ONNX_DIR, "fp32", created=created)
         else:
@@ -270,12 +306,33 @@ def export_zipvoice_onnx(
                     f"  mixed: text_encoder={mixed['text_encoder']}, "
                     f"fm_decoder={mixed['fm_decoder']}"
                 )
+            keep_fp32 = not keep_quant_only
             quant_created = export_quant_variants(
-                ONNX_DIR, mode, mixed_config=mixed if mode == "mixed" else None
+                ONNX_DIR,
+                mode,
+                mixed_config=mixed_cfg,
+                fp32_source_dir=fp32_dir if use_temp_fp32 else None,
+                keep_fp32_baseline=keep_fp32,
             )
-            created.extend(quant_created)
+            if keep_quant_only:
+                created = quant_created
+                needed = needed_fp32_baselines(mode, mixed_cfg)
+                if needed:
+                    step(
+                        f"✓ FP32 intermediate removed; shipped quant + "
+                        f"{', '.join(sorted(needed))}"
+                    )
+                else:
+                    step(f"✓ FP32 intermediate removed; shipped **{mode}** only.")
+            elif mode in ("int8", "int4", "fp16"):
+                created = ["text_encoder.onnx", "fm_decoder.onnx"] + quant_created
+            else:
+                created = quant_created
 
-        te_name, fm_name = onnx_filenames(mode, mixed if mode == "mixed" else None)
+        if temp_ctx is not None:
+            temp_ctx.cleanup()
+
+        te_name, fm_name = onnx_filenames(mode, mixed_cfg)
         step("[6/6] Export hoàn tất.")
         size_note = format_sizes(ONNX_DIR, (te_name, fm_name))
         msg = "\n".join(log_lines) + (

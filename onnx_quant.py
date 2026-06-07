@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Literal
 
@@ -85,13 +86,60 @@ def format_sizes(onnx_dir: Path, filenames: tuple[str, str]) -> str:
     return " · ".join(parts)
 
 
+def required_onnx_files(
+    mode: QuantMode | str,
+    mixed_config: dict[str, QuantComponent] | None = None,
+) -> tuple[str, str, str, str]:
+    te, fm = onnx_filenames(mode, mixed_config)
+    return te, fm, "model.json", "tokens.txt"
+
+
+def missing_onnx_files(
+    onnx_dir: Path,
+    mode: QuantMode | str,
+    mixed_config: dict[str, QuantComponent] | None = None,
+) -> list[str]:
+    """Return filenames missing for the given quant mode."""
+    return [
+        name
+        for name in required_onnx_files(mode, mixed_config)
+        if not (onnx_dir / name).is_file()
+    ]
+
+
 def onnx_ready_for_mode(
     onnx_dir: Path,
     mode: QuantMode | str,
     mixed_config: dict[str, QuantComponent] | None = None,
 ) -> bool:
-    te, fm = onnx_filenames(mode, mixed_config)
-    return all((onnx_dir / name).is_file() for name in (te, fm, "model.json", "tokens.txt"))
+    return not missing_onnx_files(onnx_dir, mode, mixed_config)
+
+
+def quant_readiness_hint(
+    mode: QuantMode | str,
+    missing: list[str],
+) -> str:
+    """Short user-facing hint when a quant mode is not ready."""
+    mode = normalize_quant_mode(str(mode))
+    if not missing:
+        return ""
+
+    onnx_missing = [n for n in missing if n.endswith(".onnx")]
+    if mode == "int4" and onnx_missing:
+        return (
+            "Tab Export → chọn **int4** → Export ONNX trong PyTorch GUI, "
+            "rồi copy `models/onnx/` sang ONNX-GUI repo."
+        )
+    if mode == "int8" and onnx_missing:
+        return "Tab Export → chọn **int8** → Export ONNX."
+    if mode == "fp16" and onnx_missing:
+        return "Tab Export → chọn **fp16** → Export ONNX."
+    if mode == "mixed" and onnx_missing:
+        return (
+            "Mixed cần từng component theo config "
+            "(mặc định: text_encoder_int8.onnx + fm_decoder.onnx)."
+        )
+    return f"Thiếu: {', '.join(missing)}"
 
 
 def write_quant_manifest(
@@ -124,32 +172,82 @@ def read_quant_manifest(onnx_dir: Path) -> dict | None:
         return None
 
 
+_FOLDER_SCAN_ORDER: tuple[QuantMode, ...] = ("int4", "int8", "fp16", "fp32")
+
+
+def detect_quant_mode_from_folder(onnx_dir: Path) -> QuantMode | None:
+    """
+    Scan models/onnx/ for the smallest ready uniform quant set.
+    Priority: int4 > int8 > fp16 > fp32 > mixed (default config).
+    """
+    for mode in _FOLDER_SCAN_ORDER:
+        if onnx_ready_for_mode(onnx_dir, mode):
+            return mode
+    if onnx_ready_for_mode(onnx_dir, "mixed", DEFAULT_MIXED_CONFIG):
+        return "mixed"
+    return None
+
+
+def mixed_config_from_manifest(manifest: dict) -> dict[str, QuantComponent]:
+    return {
+        "text_encoder": manifest.get("text_encoder", "int8"),
+        "fm_decoder": manifest.get("fm_decoder", "fp32"),
+    }
+
+
+def resolve_default_quant_mode(
+    onnx_dir: Path,
+    *,
+    env_quant: str | None = None,
+    legacy_int8_env: str | None = None,
+) -> tuple[QuantMode, str]:
+    """
+    Default inference quant mode when the caller does not pass an explicit mode.
+
+    Priority:
+      1. ZIPVOICE_ONNX_QUANT env
+      2. quantization.json ``mode``
+      3. folder scan (int4 > int8 > fp16 > fp32 > mixed)
+      4. legacy ZIPVOICE_ONNX_INT8 when explicitly set
+      5. fp32
+    """
+    if env_quant:
+        return normalize_quant_mode(env_quant), "env"
+
+    manifest = read_quant_manifest(onnx_dir)
+    if manifest and manifest.get("mode") in QUANT_MODE_CHOICES:
+        return manifest["mode"], "manifest"  # type: ignore[return-value]
+
+    detected = detect_quant_mode_from_folder(onnx_dir)
+    if detected:
+        return detected, "folder"
+
+    if legacy_int8_env is not None and legacy_int8_env.strip():
+        use_int8 = legacy_int8_env.strip().lower() in {"1", "true", "yes"}
+        return normalize_quant_mode(None, use_int8=use_int8), "legacy"
+
+    return "fp32", "default"
+
+
 def resolve_inference_mode(onnx_dir: Path, requested: str | None = None) -> tuple[QuantMode, dict[str, QuantComponent] | None]:
-    """Pick quant mode for inference: explicit request > manifest > env legacy."""
+    """Pick quant mode for inference: explicit request > manifest > folder scan > legacy."""
     if requested:
         mode = normalize_quant_mode(requested)
         if mode == "mixed":
             manifest = read_quant_manifest(onnx_dir)
             mixed = None
             if manifest and manifest.get("mode") == "mixed":
-                mixed = {
-                    "text_encoder": manifest.get("text_encoder", "int8"),
-                    "fm_decoder": manifest.get("fm_decoder", "fp32"),
-                }
+                mixed = mixed_config_from_manifest(manifest)
             return "mixed", mixed
         return mode, None
 
-    manifest = read_quant_manifest(onnx_dir)
-    if manifest and manifest.get("mode") in QUANT_MODE_CHOICES:
-        mode = manifest["mode"]
-        if mode == "mixed":
-            return "mixed", {
-                "text_encoder": manifest.get("text_encoder", "int8"),
-                "fm_decoder": manifest.get("fm_decoder", "fp32"),
-            }
-        return mode, None
-
-    return normalize_quant_mode(None), None
+    mode, _source = resolve_default_quant_mode(onnx_dir)
+    if mode == "mixed":
+        manifest = read_quant_manifest(onnx_dir)
+        if manifest and manifest.get("mode") == "mixed":
+            return "mixed", mixed_config_from_manifest(manifest)
+        return "mixed", dict(DEFAULT_MIXED_CONFIG)
+    return mode, None
 
 
 def _quantize_int8(src: Path, dst: Path) -> None:
@@ -200,6 +298,45 @@ def _convert_fp16(src: Path, dst: Path) -> None:
     onnx.save(model_fp16, str(dst))
 
 
+def needed_fp32_baselines(
+    mode: QuantMode | str,
+    mixed_config: dict[str, QuantComponent] | None = None,
+) -> frozenset[str]:
+    """FP32 baseline filenames required in the output folder for inference at *mode*."""
+    mode = normalize_quant_mode(str(mode))
+    if mode == "fp32":
+        return frozenset(component_filename(c, "fp32") for c in ONNX_COMPONENTS)
+    if mode == "mixed":
+        cfg = mixed_config or DEFAULT_MIXED_CONFIG
+        return frozenset(
+            component_filename(c, "fp32")
+            for c in ONNX_COMPONENTS
+            if cfg.get(c, "fp32") == "fp32"
+        )
+    return frozenset()
+
+
+def remove_unneeded_fp32_files(
+    onnx_dir: Path,
+    mode: QuantMode | str,
+    mixed_config: dict[str, QuantComponent] | None = None,
+) -> list[str]:
+    """Delete FP32 baseline files not required for inference at *mode*."""
+    keep = needed_fp32_baselines(mode, mixed_config)
+    removed: list[str] = []
+    for comp in ONNX_COMPONENTS:
+        name = component_filename(comp, "fp32")
+        if name in keep:
+            continue
+        path = onnx_dir / name
+        if path.is_file():
+            mb = file_size_mb(path)
+            path.unlink()
+            removed.append(name)
+            logger.info("Removed unneeded FP32 baseline: %s (%.1f MB)", name, mb)
+    return removed
+
+
 def quantize_component(src_fp32: Path, dst: Path, quant: QuantComponent) -> None:
     """Create quantized variant from FP32 ONNX file."""
     if quant == "fp32":
@@ -228,23 +365,44 @@ def export_quant_variants(
     mode: QuantMode,
     *,
     mixed_config: dict[str, QuantComponent] | None = None,
+    fp32_source_dir: Path | None = None,
+    keep_fp32_baseline: bool = True,
 ) -> list[str]:
     """
     After FP32 base export, build requested quantized artifacts.
-    Always keeps text_encoder.onnx + fm_decoder.onnx as FP32 baseline.
+
+    *fp32_source_dir* — read FP32 baselines here (e.g. temp dir) instead of *onnx_dir*.
+    *keep_fp32_baseline* — when False, ship only quant files (+ FP32 components required by mixed).
     """
+    src_dir = fp32_source_dir or onnx_dir
     created: list[str] = []
-    base = {c: onnx_dir / component_filename(c, "fp32") for c in ONNX_COMPONENTS}
+    base = {c: src_dir / component_filename(c, "fp32") for c in ONNX_COMPONENTS}
+
+    def _copy_fp32_to_output() -> None:
+        for comp in ONNX_COMPONENTS:
+            dst = onnx_dir / component_filename(comp, "fp32")
+            shutil.copy2(base[comp], dst)
+            if dst.name not in created:
+                created.append(dst.name)
 
     if mode == "fp32":
-        write_quant_manifest(onnx_dir, "fp32", created=[n.name for n in base.values()])
-        return [n.name for n in base.values()]
+        if fp32_source_dir is not None:
+            _copy_fp32_to_output()
+        else:
+            created = [n.name for n in base.values()]
+        write_quant_manifest(onnx_dir, "fp32", created=created)
+        return created
 
     if mode in ("int8", "int4", "fp16"):
         for comp in ONNX_COMPONENTS:
             out = onnx_dir / component_filename(comp, mode)
             quantize_component(base[comp], out, mode)  # type: ignore[arg-type]
             created.append(out.name)
+        if keep_fp32_baseline:
+            if fp32_source_dir is not None:
+                _copy_fp32_to_output()
+        else:
+            remove_unneeded_fp32_files(onnx_dir, mode)
         write_quant_manifest(onnx_dir, mode, created=created)
         return created
 
@@ -253,10 +411,16 @@ def export_quant_variants(
         for comp in ONNX_COMPONENTS:
             q = cfg.get(comp, "fp32")
             if q == "fp32":
+                dst = onnx_dir / component_filename(comp, "fp32")
+                shutil.copy2(base[comp], dst)
+                if dst.name not in created:
+                    created.append(dst.name)
                 continue
             out = onnx_dir / component_filename(comp, q)
             quantize_component(base[comp], out, q)
             created.append(out.name)
+        if not keep_fp32_baseline:
+            remove_unneeded_fp32_files(onnx_dir, mode, cfg)
         write_quant_manifest(onnx_dir, "mixed", mixed_config=cfg, created=created)
         return created
 

@@ -51,6 +51,7 @@ def do_export(
     quant_mode: str,
     mixed_te: str,
     mixed_fm: str,
+    keep_quant_only: bool,
     progress=gr.Progress(),
 ) -> tuple[str, str, str]:
     from onnx_quant import DEFAULT_MIXED_CONFIG
@@ -69,7 +70,11 @@ def do_export(
         progress(0.05, desc="Kiểm tra onnxruntime...")
         progress(0.15, desc="Load checkpoint PyTorch...")
         progress(0.35, desc="Export text_encoder + fm_decoder...")
-        result = export_zipvoice_onnx(quant_mode, mixed_config=mixed_config)
+        result = export_zipvoice_onnx(
+            quant_mode,
+            mixed_config=mixed_config,
+            keep_quant_only=keep_quant_only and quant_mode != "fp32",
+        )
         progress(1.0, desc="Xong" if result.ok else "Lỗi")
         log = result.message
         if result.files:
@@ -166,10 +171,11 @@ def build_ui() -> gr.Blocks:
 # ZipVoice ONNX — Export & Test
 
 1. Tab **Trạng thái** — kiểm tra dependency  
-2. Tab **Export** — FP32 base + quant variant (`int8` / `int4` / `fp16` / `mixed`)  
+2. Tab **Export** — quant variant (`int8` / `int4` / `fp16` / `mixed`) hoặc FP32 baseline  
 3. Tab **Test** — so sánh PyTorch vs ONNX inference (chọn cùng quant mode)  
 
 **Đặt tên file:** `text_encoder[_fp16|_int8|_int4].onnx` · manifest `quantization.json`  
+**Quant-only (mặc định):** FP32 chỉ dùng tạm khi quant — output không còn `text_encoder.onnx` / `fm_decoder.onnx` trừ mixed có component FP32.
 **INT4 CPU:** cần ORT ≥1.20 + CPU hỗ trợ MatMulNBits (x86 AVX2+); thử nghiệm trên diffusion TTS.  
 **Log file:** `logs/onnx.log` · **Output audio:** `output/`
             """
@@ -192,6 +198,11 @@ def build_ui() -> gr.Blocks:
                 value="int8",
                 info="fp32 chỉ baseline; int8 khuyến nghị CPU; int4 ~2× nhỏ hơn int8 (thử nghiệm)",
             )
+            keep_quant_only = gr.Checkbox(
+                label="Chỉ giữ file quant (xóa FP32)",
+                value=True,
+                info="FP32 export vào temp; models/onnx/ chỉ còn bản quant (+ FP32 component nếu mixed)",
+            )
             with gr.Row():
                 mixed_te = gr.Dropdown(
                     label="Mixed: text_encoder",
@@ -208,9 +219,17 @@ def build_ui() -> gr.Blocks:
 
             def _toggle_mixed(mode: str):
                 show = mode == "mixed"
-                return gr.update(visible=show), gr.update(visible=show)
+                return (
+                    gr.update(visible=show),
+                    gr.update(visible=show),
+                    gr.update(value=mode != "fp32", interactive=mode != "fp32"),
+                )
 
-            quant_mode.change(_toggle_mixed, inputs=[quant_mode], outputs=[mixed_te, mixed_fm])
+            quant_mode.change(
+                _toggle_mixed,
+                inputs=[quant_mode],
+                outputs=[mixed_te, mixed_fm, keep_quant_only],
+            )
 
             btn_export = gr.Button("Bắt đầu Export ONNX", variant="primary")
             export_log = gr.Textbox(label="Tiến trình export", lines=12)
@@ -218,18 +237,18 @@ def build_ui() -> gr.Blocks:
 
             btn_export.click(
                 do_export,
-                inputs=[quant_mode, mixed_te, mixed_fm],
+                inputs=[quant_mode, mixed_te, mixed_fm, keep_quant_only],
                 outputs=[export_log, export_env, log_box],
             )
 
         with gr.Tab("2) Test inference"):
-            ready_lines = "\n".join(
-                f"- ONNX {m} ready: **{onnx_ready(m)}**" for m in QUANT_MODE_CHOICES
-            )
+            from onnx_toolkit import onnx_ready_report
+
             gr.Markdown(
                 f"""
-{ready_lines}
+{onnx_ready_report()}
 - Sau export, chạy **Test PyTorch** (baseline) rồi **Test ONNX** (cùng quant mode) để so sánh audio.
+- **INT4:** copy `models/onnx/` sang ONNX-GUI repo sau khi export, hoặc chạy `quantize_onnx.py --mode int4` ở repo đích.
                 """
             )
             voice_dd = gr.Dropdown(
