@@ -24,11 +24,14 @@ if errorlevel 1 (
 )
 
 echo.
-set /p LAUNCH="Launch GUI now? (Y/n): "
+echo  Chay GUI: run_gui.bat  -^>  http://127.0.0.1:7860
+echo  (run_cpu.bat = alias cu, tuong duong run_gui.bat)
+echo.
+set /p LAUNCH="Chay giao dien GUI ngay? (Y/n): "
 if /i "%LAUNCH%"=="n" (
-    echo Done. Double-click run_cpu.bat when ready.
+    echo Xong. Double-click run_gui.bat khi san sang.
     pause
     exit /b 0
 )
 
-call "%~dp0run_cpu.bat"
+call "%~dp0run_gui.bat"

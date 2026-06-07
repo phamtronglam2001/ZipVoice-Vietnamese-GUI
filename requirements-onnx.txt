@@ -1,3 +1,5 @@
 # Extra deps for app_onnx.py (install after requirements-cpu.txt)
 onnx>=1.16.0
-onnxruntime>=1.18.0
+onnxruntime>=1.20.0
+onnx-ir>=0.2.0
+onnxconverter-common>=1.16.0

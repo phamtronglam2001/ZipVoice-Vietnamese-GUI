@@ -47,18 +47,29 @@ def _pick_voice(voice_id: str) -> tuple[str | None, str]:
     return voice.audio_path, voice.transcript
 
 
-def do_export(export_int8: bool, progress=gr.Progress()) -> tuple[str, str, str]:
+def do_export(
+    quant_mode: str,
+    mixed_te: str,
+    mixed_fm: str,
+    progress=gr.Progress(),
+) -> tuple[str, str, str]:
+    from onnx_quant import DEFAULT_MIXED_CONFIG
     from onnx_toolkit import export_zipvoice_onnx
 
     if not models_ready():
         msg = "Thiếu PyTorch models. Chạy install_cpu.bat trước."
         return msg, _refresh_env()[0], _tail_log()
 
+    mixed_config = {
+        "text_encoder": mixed_te,
+        "fm_decoder": mixed_fm,
+    } if quant_mode == "mixed" else None
+
     try:
         progress(0.05, desc="Kiểm tra onnxruntime...")
         progress(0.15, desc="Load checkpoint PyTorch...")
         progress(0.35, desc="Export text_encoder + fm_decoder...")
-        result = export_zipvoice_onnx(export_int8=export_int8)
+        result = export_zipvoice_onnx(quant_mode, mixed_config=mixed_config)
         progress(1.0, desc="Xong" if result.ok else "Lỗi")
         log = result.message
         if result.files:
@@ -93,19 +104,27 @@ def do_test_onnx(
     ref_audio: str | None,
     ref_text: str,
     gen_text: str,
-    use_int8: bool,
+    quant_mode: str,
+    mixed_te: str,
+    mixed_fm: str,
     speed: float,
     progress=gr.Progress(),
 ) -> tuple[str, str | None, str]:
     from onnx_toolkit import test_onnx_inference
 
     audio, transcript, text = _resolve_test_inputs(voice_id, ref_audio, ref_text, gen_text)
+    mixed_config = (
+        {"text_encoder": mixed_te, "fm_decoder": mixed_fm}
+        if quant_mode == "mixed"
+        else None
+    )
     progress(0.2, desc="Load ONNX + vocoder...")
     result = test_onnx_inference(
         prompt_wav=audio or "",
         prompt_text=transcript,
         text=text,
-        use_int8=use_int8,
+        quant_mode=quant_mode,
+        mixed_config=mixed_config,
         speed=speed,
     )
     progress(1.0, desc="Xong" if result.ok else "Lỗi")
@@ -138,6 +157,7 @@ def build_ui() -> gr.Blocks:
     global _voice_cache
     _voice_cache = scan_ref_voices()
 
+    from onnx_quant import COMPONENT_QUANT_CHOICES, DEFAULT_MIXED_CONFIG, QUANT_MODE_CHOICES
     from onnx_toolkit import check_environment, onnx_ready
 
     with gr.Blocks(title="ZipVoice ONNX Export & Test") as demo:
@@ -146,9 +166,11 @@ def build_ui() -> gr.Blocks:
 # ZipVoice ONNX — Export & Test
 
 1. Tab **Trạng thái** — kiểm tra dependency  
-2. Tab **Export** — tạo `text_encoder.onnx` + `fm_decoder.onnx`  
-3. Tab **Test** — so sánh PyTorch vs ONNX inference  
+2. Tab **Export** — FP32 base + quant variant (`int8` / `int4` / `fp16` / `mixed`)  
+3. Tab **Test** — so sánh PyTorch vs ONNX inference (chọn cùng quant mode)  
 
+**Đặt tên file:** `text_encoder[_fp16|_int8|_int4].onnx` · manifest `quantization.json`  
+**INT4 CPU:** cần ORT ≥1.20 + CPU hỗ trợ MatMulNBits (x86 AVX2+); thử nghiệm trên diffusion TTS.  
 **Log file:** `logs/onnx.log` · **Output audio:** `output/`
             """
         )
@@ -164,26 +186,50 @@ def build_ui() -> gr.Blocks:
             demo.load(_refresh_env, outputs=[env_md, log_box])
 
         with gr.Tab("1) Export ONNX"):
-            export_int8 = gr.Checkbox(
-                label="Tạo thêm bản INT8 (nhanh hơn, chất lượng thấp hơn)",
-                value=True,
+            quant_mode = gr.Dropdown(
+                label="Chế độ quant sau export FP32",
+                choices=list(QUANT_MODE_CHOICES),
+                value="int8",
+                info="fp32 chỉ baseline; int8 khuyến nghị CPU; int4 ~2× nhỏ hơn int8 (thử nghiệm)",
             )
+            with gr.Row():
+                mixed_te = gr.Dropdown(
+                    label="Mixed: text_encoder",
+                    choices=list(COMPONENT_QUANT_CHOICES),
+                    value=DEFAULT_MIXED_CONFIG["text_encoder"],
+                    visible=False,
+                )
+                mixed_fm = gr.Dropdown(
+                    label="Mixed: fm_decoder",
+                    choices=list(COMPONENT_QUANT_CHOICES),
+                    value=DEFAULT_MIXED_CONFIG["fm_decoder"],
+                    visible=False,
+                )
+
+            def _toggle_mixed(mode: str):
+                show = mode == "mixed"
+                return gr.update(visible=show), gr.update(visible=show)
+
+            quant_mode.change(_toggle_mixed, inputs=[quant_mode], outputs=[mixed_te, mixed_fm])
+
             btn_export = gr.Button("Bắt đầu Export ONNX", variant="primary")
             export_log = gr.Textbox(label="Tiến trình export", lines=12)
             export_env = gr.Markdown(check_environment())
 
             btn_export.click(
                 do_export,
-                inputs=[export_int8],
+                inputs=[quant_mode, mixed_te, mixed_fm],
                 outputs=[export_log, export_env, log_box],
             )
 
         with gr.Tab("2) Test inference"):
+            ready_lines = "\n".join(
+                f"- ONNX {m} ready: **{onnx_ready(m)}**" for m in QUANT_MODE_CHOICES
+            )
             gr.Markdown(
                 f"""
-- ONNX FP32 ready: **{onnx_ready(False)}**
-- ONNX INT8 ready: **{onnx_ready(True)}**
-- Sau export, chạy **Test PyTorch** (baseline) rồi **Test ONNX** để so sánh audio.
+{ready_lines}
+- Sau export, chạy **Test PyTorch** (baseline) rồi **Test ONNX** (cùng quant mode) để so sánh audio.
                 """
             )
             voice_dd = gr.Dropdown(
@@ -198,7 +244,27 @@ def build_ui() -> gr.Blocks:
                 value="xin chào, đây là bài test onnx zipvoice tiếng việt.",
                 lines=2,
             )
-            use_int8 = gr.Checkbox(label="ONNX test dùng INT8", value=False)
+            test_quant_mode = gr.Dropdown(
+                label="Quant mode cho Test ONNX",
+                choices=list(QUANT_MODE_CHOICES),
+                value="fp32",
+            )
+            with gr.Row():
+                test_mixed_te = gr.Dropdown(
+                    label="Mixed: text_encoder",
+                    choices=list(COMPONENT_QUANT_CHOICES),
+                    value=DEFAULT_MIXED_CONFIG["text_encoder"],
+                    visible=False,
+                )
+                test_mixed_fm = gr.Dropdown(
+                    label="Mixed: fm_decoder",
+                    choices=list(COMPONENT_QUANT_CHOICES),
+                    value=DEFAULT_MIXED_CONFIG["fm_decoder"],
+                    visible=False,
+                )
+            test_quant_mode.change(
+                _toggle_mixed, inputs=[test_quant_mode], outputs=[test_mixed_te, test_mixed_fm]
+            )
             speed = gr.Slider(0.5, 2.0, value=1.0, step=0.1, label="Tốc độ")
 
             with gr.Row():
@@ -216,7 +282,16 @@ def build_ui() -> gr.Blocks:
             )
             btn_onnx.click(
                 do_test_onnx,
-                inputs=[voice_dd, ref_audio, ref_text, gen_text, use_int8, speed],
+                inputs=[
+                    voice_dd,
+                    ref_audio,
+                    ref_text,
+                    gen_text,
+                    test_quant_mode,
+                    test_mixed_te,
+                    test_mixed_fm,
+                    speed,
+                ],
                 outputs=[test_log, test_audio, log_box],
             )
 

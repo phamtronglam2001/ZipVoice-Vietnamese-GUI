@@ -65,6 +65,10 @@ def is_enumeration_only_block(block: str) -> bool:
 
 _TERMINAL_PUNCT = re.compile(r'[.!?…]["\'""»)\]]*\s*$')
 _RE_LOWERCASE_START = re.compile(r"^[a-zà-ỹ0-9]", re.UNICODE)
+_RE_PARAGRAPH_BOUNDARY = re.compile(
+    r"^(?:mẫu|bài|phần|chương|mục|đoạn|tiết)\b",
+    re.IGNORECASE | re.UNICODE,
+)
 _MAX_SOFT_JOIN_LINE = 120
 
 

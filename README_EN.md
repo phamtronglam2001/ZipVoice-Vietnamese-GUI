@@ -92,8 +92,6 @@ Official GitHub sources for ported modules and optional normalizers.
 |---------|-----------------|----------------|-------|
 | **VieNeu** | [github.com/pnnbao97/VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS) — `vieneu_utils/core_utils.py` | `vieneu_text.py` (ported, built-in) | Punctuation cleanup only — **not** the VieNeu-TTS engine |
 | **TTS structure** | Original to this repo (Pham Trong Lam) | `period_linebreak.py` (built-in) | Brackets→commas; list items→line breaks |
-| **vinorm** | [github.com/NoahDrisort/vinorm](https://github.com/NoahDrisort/vinorm) | `pip install vinorm` | NSW — **not bundled in ZipVoice** |
-| **vietnormalizer** | [github.com/nghimestudio/vietnormalizer](https://github.com/nghimestudio/vietnormalizer) | `pip install vietnormalizer` | Broader Vietnamese normalization |
 | **sea-g2p Normalizer** | [github.com/pnnbao97/sea-g2p](https://github.com/pnnbao97/sea-g2p) | `pip install sea-g2p` | **Normalizer only**; GUI strips `<en>` tags |
 
 **Long-text chunking** (`utils.py`): inspired by [VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS) chunking ideas, reimplemented for ZipVoice.
@@ -124,7 +122,7 @@ See the voice table in [README.md](README.md) (Vietnamese).
 - **Preview normalization** before synthesis
 - Smart chunking with pauses for sentences, paragraphs, chapters, and numbered list items
 - WAV 24 kHz or MP3 export to `output/`
-- CPU one-click install (`install_cpu.bat` / `run_cpu.bat`)
+- CPU one-click install (`install_cpu.bat` / `run_gui.bat`)
 - Logging: `logs/app.log`, `logs/crash.log`
 - **Presets** (`profiles/*.json`) — **Load preset** / **Save preset** in the GUI accordion
 
@@ -135,11 +133,28 @@ JSON **schema v1** captures voice (bundled or manual upload), normalization pipe
 | Default file | Description |
 |--------------|-------------|
 | `profiles/none.json` | Empty pipeline |
-| `profiles/sach.json` | VieNeu + TTS structure + vinorm, voice **Ái Vy** |
+| `profiles/sach.json` | Full pipeline (sea-g2p → … → VieNeu), voice **Ái Vy** |
 
 **GUI:** **Preset** accordion → select file → **Load preset** (all widgets) or **Save preset** → `profiles/<name>.json`.
 
-Shared module with the ONNX repo: `preset_io.py`. CLI is ONNX-only: [ZipVoice-Vietnamese-ONNX-GUI](https://github.com/phamtronglam2001/ZipVoice-Vietnamese-ONNX-GUI).
+Shared module with the ONNX repo: `preset_io.py` · CLI: `cli_tts.py` · `run_cli.bat` (same preset schema).
+
+### CLI (profile-driven)
+
+```bat
+run_cli.bat list-voices
+run_cli.bat profile list
+run_cli.bat profile show sach
+run_cli.bat preview -p sach -t "Chương 1. Xin chào."
+run_cli.bat synthesize -p sach -f book.txt -o output/book.wav
+run_cli.bat synthesize -p sach -f book.txt --normalize-only --output-normalized output/book_normalized.txt
+run_cli.bat synthesize -p sach -f output/book_normalized.txt --skip-normalize -o output/book.wav
+```
+
+- `--profile` / `-p` loads full `PresetConfig`; only `-o` / `--output` overrides the output path
+- `--skip-normalize` / `--input-prepared` — input already normalized (skip pipeline)
+- `--normalize-only` — normalize only, no TTS
+- `--output-normalized PATH` — save full normalized text to `.txt`
 
 ### ONNX tool (`app_onnx.py` — port 7861)
 
@@ -157,14 +172,14 @@ Add, remove, and reorder steps on the GUI. **Each step receives the previous ste
 | **Join PDF line breaks** | No | `join_soft_breaks` — merge short lowercase lines (OCR/PDF mid-sentence wraps) |
 | **Newline → sentence** | No | `newline_sentence` — append `.` before line breaks: `Chương 1\nNội dung` → `Chương 1.\nNội dung` |
 | **TTS structure** | No | `period_break` — brackets→commas; `một. next` → `một.\nnext` (`period_linebreak.py`) |
-| **vinorm** | Yes | [NoahDrisort/vinorm](https://github.com/NoahDrisort/vinorm) |
-| **vietnormalizer** | Yes | [nghimestudio/vietnormalizer](https://github.com/nghimestudio/vietnormalizer) |
 | **sea-g2p Normalizer** | Yes | [pnnbao97/sea-g2p](https://github.com/pnnbao97/sea-g2p) — Normalizer only |
 | **None** | — | Skip step |
 
-**GUI default:** empty pipeline (light punctuation cleanup). **Audiobook preset** → VieNeu → TTS structure → vinorm.
+**GUI default:** empty pipeline (light punctuation cleanup). **Audiobook preset** → full pipeline (sea-g2p → … → VieNeu).
 
-**Suggested for books:** `VieNeu → TTS structure → vinorm` (or sea-g2p). For PDF/OCR text, try `join_soft_breaks` before VieNeu; for chapter headings, add `newline_sentence`.
+**Suggested for books:** `sea-g2p → TTS structure → VieNeu`. For PDF/OCR text, try `join_soft_breaks` before VieNeu; for chapter headings, add `newline_sentence`.
+
+> **Note:** [vinorm](https://github.com/NoahDrisort/vinorm) and [vietnormalizer](https://github.com/nghimestudio/vietnormalizer) were previously supported as optional NSW backends; they are **not bundled**. Use `sea-g2p` instead.
 
 **TTS / preview flow:** normalize the **full document** once (`normalize_full_document`) → **split** (`split_text_for_tts`) → per-chunk light cleanup only (pipeline not re-run). **Preview normalization** and **full normalized text** show the chained pipeline output with preserved `\n` and added periods.
 
@@ -186,10 +201,10 @@ All steps output plain text. ZipVoice phonemizes via Espeak separately — safe 
 git clone https://github.com/phamtronglam2001/ZipVoice-Vietnamese-GUI.git
 cd ZipVoice-Vietnamese-GUI
 install_cpu.bat
-run_cpu.bat
+run_gui.bat
 ```
 
-Open http://127.0.0.1:7860
+Open http://127.0.0.1:7860 (`run_cpu.bat` is a legacy alias)
 
 `install_cpu.bat` creates `.venv`, installs PyTorch CPU, k2, normalizers, clones `vendor/ZipVoice`, downloads models (~2 GB).
 
@@ -199,6 +214,7 @@ Open http://127.0.0.1:7860
 
 ```
 app.py, app_onnx.py       # Gradio GUIs
+cli_tts.py, run_cli.bat   # Profile-driven CLI
 infer_engine.py           # ZipVoice + Vocos wrapper
 utils.py                  # Pipeline + long-text chunking
 vieneu_text.py            # VieNeu punctuation cleanup
@@ -217,7 +233,7 @@ output/                   # Exported audio
 | Issue | Fix |
 |-------|-----|
 | `Models not found` | Run `install_cpu.bat` |
-| `vinorm` not installed | `pip install vinorm`, or remove from pipeline |
+| Missing sea-g2p | `.venv\Scripts\pip install -r requirements-cpu.txt` |
 | Parentheses read too fast | Enable **TTS structure** (Step 2) |
 | Silent exit | `view_logs.bat` → `logs/app.log` |
 | ONNX black screen | `view_onnx_logs.bat`; `pip install -r requirements-onnx.txt` |

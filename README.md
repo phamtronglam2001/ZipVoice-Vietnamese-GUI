@@ -100,11 +100,11 @@ Các module/port trong repo **phải ghi nguồn GitHub** khi dùng hoặc phát
 | **Cấu trúc TTS** | Viết trong repo này (Pham Trong Lam) | `period_linebreak.py` (built-in) | Ngoặc→phẩy; mục `một.` / `2.`→xuống dòng |
 | **Xuống dòng → câu** | Viết trong repo này | `period_linebreak.py` (`newline_sentence`) | `Chương 1\nNội dung` → `Chương 1.\nNội dung` |
 | **Gộp xuống dòng PDF** | Viết trong repo này | `period_linebreak.py` (`join_soft_breaks`) | Gộp dòng ngắn viết thường (OCR/PDF) |
-| **vinorm** | [github.com/NoahDrisort/vinorm](https://github.com/NoahDrisort/vinorm) | `pip install vinorm` → `utils.py` | NSW (số, ngày…) — **không có trong ZipVoice** |
-| **vietnormalizer** | [github.com/nghimestudio/vietnormalizer](https://github.com/nghimestudio/vietnormalizer) | `pip install vietnormalizer` | Chuẩn hóa tiếng Việt rộng |
 | **sea-g2p Normalizer** | [github.com/pnnbao97/sea-g2p](https://github.com/pnnbao97/sea-g2p) | `pip install sea-g2p` | Chỉ `Normalizer`, **không** dùng G2P; GUI gỡ tag `<en>` |
 
 **Chunk sách dài** (`utils.py` — `split_text_for_tts`): lấy cảm hứng từ logic chia đoạn [VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS), triển khai riêng cho ZipVoice.
+
+> **Lưu ý:** [vinorm](https://github.com/NoahDrisort/vinorm) và [vietnormalizer](https://github.com/nghimestudio/vietnormalizer) từng được hỗ trợ như backend NSW tùy chọn; hiện **không cài kèm**. Dùng `sea-g2p` thay thế.
 
 ### UI & runtime
 
@@ -119,7 +119,7 @@ Các module/port trong repo **phải ghi nguồn GitHub** khi dùng hoặc phát
 
 ## Giọng mẫu có sẵn (đọc ngay sau khi clone)
 
-Repo đã kèm **9 file WAV** trong `assets/ref_audio/` — chọn trực tiếp trên GUI sau `install_cpu.bat` + `run_cpu.bat`, **không cần tải thêm giọng**.
+Repo đã kèm **9 file WAV** trong `assets/ref_audio/` — chọn trực tiếp trên GUI sau `install_cpu.bat` + `run_gui.bat`, **không cần tải thêm giọng**.
 
 | ID (`ref_info.json`) | Tên hiển thị | File | Transcript (tóm tắt) |
 |--------------------|--------------|------|----------------------|
@@ -137,7 +137,7 @@ Cấu hình trong `assets/ref_info.json` — mỗi giọng có `name`, `audio_pa
 
 **Dùng ngay:**
 
-1. `install_cpu.bat` → `run_cpu.bat`
+1. `install_cpu.bat` → `run_gui.bat`
 2. Menu **Chọn giọng có sẵn** → chọn một dòng trong bảng trên
 3. Ô 2 tự điền transcript; ô 3 nhập văn bản cần đọc → **Tổng hợp giọng nói**
 
@@ -151,11 +151,11 @@ Cấu hình trong `assets/ref_info.json` — mỗi giọng có `name`, `audio_pa
 - **Quản lý giọng** qua `assets/ref_info.json` (menu dropdown, không quét file lẻ)
 - **Hai ô text tách biệt:** transcript giọng mẫu (bắt buộc) vs văn bản cần đọc
 - **Upload `.txt` / `.md`** cho văn bản dài (sách, nhiều chương)
-- **Pipeline chuẩn hóa** danh sách tùy chỉnh theo thứ tự (mặc định **trống**, không giới hạn số bước): VieNeu / Gộp PDF / Xuống dòng→câu / Cấu trúc TTS / vinorm / … — preset **Sách/Audiobook** gợi ý VieNeu → Cấu trúc TTS → vinorm
+- **Pipeline chuẩn hóa** danh sách tùy chỉnh theo thứ tự (mặc định **trống**, không giới hạn số bước): VieNeu / Gộp PDF / Xuống dòng→câu / Cấu trúc TTS / sea-g2p / … — preset **Sách/Audiobook** gợi ý pipeline đầy đủ (sea-g2p → … → VieNeu)
 - **Xem trước chuẩn hóa** trước khi TTS (không load model)
 - **Chia chunk thông minh** + nghỉ câu / đoạn / chương / mục đánh số (~1s)
 - **Xuất** WAV 24kHz hoặc MP3 (32k/128k) vào `output/`
-- **CPU-only** một click (`install_cpu.bat` / `run_cpu.bat`)
+- **CPU-only** một click (`install_cpu.bat` / `run_gui.bat`)
 - **Logging** `logs/app.log`, `logs/crash.log`
 - **Preset/profile** (`profiles/*.json`) — accordion **Tải preset** / **Lưu preset** trên GUI
 
@@ -166,11 +166,11 @@ Preset JSON **schema v1** lưu toàn bộ cấu hình đọc sách: giọng (bun
 | File mặc định | Mô tả |
 |---------------|--------|
 | `profiles/none.json` | Pipeline trống |
-| `profiles/sach.json` | VieNeu + Cấu trúc TTS + vinorm, giọng **Ái Vy** |
+| `profiles/sach.json` | Pipeline đầy đủ (sea-g2p → … → VieNeu), giọng **Ái Vy** |
 
 **GUI:** accordion **Preset** → chọn file → **Tải preset** (áp dụng mọi widget) hoặc **Lưu preset** (tên file → `profiles/<tên>.json`).
 
-Module dùng chung với repo ONNX: `preset_io.py` · CLI: `cli_tts.py` (cùng schema preset).
+Module dùng chung với repo ONNX: `preset_io.py` · CLI: `cli_tts.py` · `run_cli.bat` (cùng schema preset).
 
 ### Xuất / nhập lại text đã chuẩn hóa (workflow sách dài)
 
@@ -180,11 +180,16 @@ book.txt → pipeline → book_normalized.txt → (sửa tay) → TTS (bỏ qua 
 
 **GUI:** **Xem trước** / **Xuất text đã chuẩn hóa (.txt)** → sửa file → upload lại, chọn **Đã chuẩn hóa (bỏ qua pipeline)** → TTS. Ô preview hiển thị text **đầy đủ**.
 
-**CLI (PyTorch):**
+**CLI:**
 
 ```bat
-python cli_tts.py synthesize -p sach -f book.txt --normalize-only --output-normalized output/book_normalized.txt
-python cli_tts.py synthesize -p sach -f output/book_normalized.txt --skip-normalize -o output/book.wav
+run_cli.bat list-voices
+run_cli.bat profile list
+run_cli.bat profile show sach
+run_cli.bat preview -p sach -t "Chương 1. Xin chào."
+run_cli.bat synthesize -p sach -f book.txt -o output/book.wav
+run_cli.bat synthesize -p sach -f book.txt --normalize-only --output-normalized output/book_normalized.txt
+run_cli.bat synthesize -p sach -f output/book_normalized.txt --skip-normalize -o output/book.wav
 ```
 
 Preset JSON: `"input_mode": "raw"` hoặc `"prepared"`.
@@ -200,7 +205,9 @@ Preset JSON: `"input_mode": "raw"` hoặc `"prepared"`.
 | Script | Mô tả |
 |--------|-------|
 | `install_cpu.bat` | Cài `.venv`, PyTorch CPU, k2, models, vendor ZipVoice |
-| `run_cpu.bat` | Chạy GUI TTS |
+| `run_gui.bat` | Khởi động Gradio GUI (http://127.0.0.1:7860) |
+| `run_cpu.bat` | Alias cũ → `run_gui.bat` |
+| `run_cli.bat` | CLI TTS (preset/profile) |
 | `run_onnx.bat` | Chạy GUI ONNX |
 | `setup_ffmpeg.bat` | FFmpeg cho export MP3 |
 | `fix_deps.bat` | Sửa k2 / numpy |
@@ -268,7 +275,7 @@ Hoặc PowerShell:
 Script sẽ:
 
 1. Tạo `.venv`
-2. Cài PyTorch CPU, k2, dependencies (vinorm, vietnormalizer, sea-g2p, …)
+2. Cài PyTorch CPU, k2, dependencies (sea-g2p, …)
 3. Cài `piper_phonemize` (espeak tokenizer)
 4. Clone `vendor/ZipVoice`
 5. Tải weights vào `models/zipvoice/`, `models/vocoder/`
@@ -282,14 +289,14 @@ setup_ffmpeg.bat
 ### 4. Chạy
 
 ```bat
-run_cpu.bat
+run_gui.bat
 ```
 
-Mở **http://127.0.0.1:7860**
+Mở **http://127.0.0.1:7860** (`run_cpu.bat` = alias cũ)
 
 ### 5. Portable / offline
 
-Copy cả thư mục (gồm `.venv`, `models`, `vendor`) sang máy khác → chỉ cần `run_cpu.bat`.
+Copy cả thư mục (gồm `.venv`, `models`, `vendor`) sang máy khác → chỉ cần `run_gui.bat`.
 
 ---
 
@@ -325,14 +332,12 @@ Thêm/xóa/sắp xếp bước trên GUI — **mỗi bước nhận output của
 | **Gộp xuống dòng PDF** | Không | `join_soft_breaks` — gộp dòng ngắn viết thường (text OCR/PDF bị ngắt giữa câu) |
 | **Xuống dòng → câu** | Không | `newline_sentence` — thêm `.` trước xuống dòng: `Chương 1\nNội dung` → `Chương 1.\nNội dung` |
 | **Cấu trúc TTS** | Không | `period_break` — `mẫu (mẹ)`→`mẫu, mẹ`; `một. đoạn`→`một.\nđoạn` (`period_linebreak.py`) |
-| **vinorm** | Có | NSW — [NoahDrisort/vinorm](https://github.com/NoahDrisort/vinorm) |
-| **vietnormalizer** | Có | [nghimestudio/vietnormalizer](https://github.com/nghimestudio/vietnormalizer) |
 | **sea-g2p** | Có | [pnnbao97/sea-g2p](https://github.com/pnnbao97/sea-g2p) — **chỉ Normalizer** |
 | **Không** | — | Bỏ qua bước |
 
-**Mặc định GUI:** pipeline **trống** (chỉ dọn dấu câu). Preset **Sách/Audiobook** → VieNeu → Cấu trúc TTS → vinorm.
+**Mặc định GUI:** pipeline **trống** (chỉ dọn dấu câu). Preset **Sách/Audiobook** → sea-g2p → Cấu trúc TTS → … → VieNeu.
 
-**Gợi ý sách:** `VieNeu → Cấu trúc TTS → vinorm` (hoặc sea-g2p). PDF/OCR: thử `join_soft_breaks` trước VieNeu; tiêu đề chương: thêm `newline_sentence`.
+**Gợi ý sách:** `sea-g2p → Cấu trúc TTS → VieNeu`. PDF/OCR: thử `join_soft_breaks` trước VieNeu; tiêu đề chương: thêm `newline_sentence`.
 
 **Luồng TTS / preview:** chuẩn hóa **toàn bộ** văn bản một lần (`normalize_full_document`) → **chia chunk** (`split_text_for_tts`) → mỗi chunk chỉ dọn dấu câu nhẹ (không chạy lại pipeline). Ô **Xem trước** / **Text đầy đủ sau chuẩn hóa** hiển thị đúng output chuỗi pipeline, **giữ `\n`** và dấu `.` đã thêm.
 
@@ -382,8 +387,7 @@ ZipVoice-Vietnamese-GUI/
 |--------|------------|
 | `Models not found` | Chạy `install_cpu.bat` |
 | App thoát im lặng | `view_logs.bat` → `logs/app.log` |
-| `Chưa cài vinorm` | `pip install vinorm` hoặc bỏ khỏi pipeline; dùng VieNeu / Cấu trúc TTS |
-| Thiếu vietnormalizer / sea-g2p | `.venv\Scripts\pip install -r requirements-cpu.txt` |
+| Thiếu sea-g2p | `.venv\Scripts\pip install -r requirements-cpu.txt` |
 | Ngoặc đọc liền | Bật **Cấu trúc TTS** (Bước 2) |
 | ffmpeg not found | `setup_ffmpeg.bat` |
 | k2 lỗi | `fix_deps.bat` |

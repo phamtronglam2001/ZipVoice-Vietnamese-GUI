@@ -35,8 +35,6 @@ VALID_PIPELINE_STEPS = frozenset(
         "join_soft_breaks",
         "newline_sentence",
         "period_break",
-        "vinorm",
-        "vietnormalizer",
         "sea_g2p",
     }
 )

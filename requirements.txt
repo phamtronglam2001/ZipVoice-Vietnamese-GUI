@@ -11,8 +11,6 @@ gradio>=4.44.0
 huggingface_hub
 
 # Text normalization (GUI: chọn 1 trong các backend)
-vinorm
-vietnormalizer
 sea-g2p>=0.7.5
 pydub
 librosa
