@@ -1,6 +1,6 @@
 """
 Export ZipVoice Vietnamese checkpoint to ONNX and run smoke-test inference.
-Vocos vocoder stays PyTorch (same as upstream ZipVoice ONNX path).
+Vocos: optional ONNX export (mag/x/y + librosa ISTFT) or PyTorch decode at test time.
 Heavy imports are lazy so the Gradio GUI can start even before onnxruntime is installed.
 """
 from __future__ import annotations
@@ -48,6 +48,16 @@ logger = logging.getLogger("zipvoice_onnx")
 SAMPLING_RATE = 24000
 FEAT_SCALE = 0.1
 TARGET_RMS = 0.1
+
+
+def vocos_onnx_path() -> Path:
+    from vocos_export import VOCOS_ONNX_NAME
+
+    return VOCODER_DIR / VOCOS_ONNX_NAME
+
+
+def vocos_onnx_ready() -> bool:
+    return vocos_onnx_path().is_file()
 
 
 @dataclass
@@ -133,6 +143,13 @@ def onnx_status() -> str:
         "tokens.txt",
         "quantization.json",
     ]
+    voc_path = vocos_onnx_path()
+    if voc_path.is_file():
+        mb = voc_path.stat().st_size / (1024 * 1024)
+        lines.append(f"- `{voc_path.name}` (vocoder, 100 mel) — {mb:.1f} MB")
+    else:
+        lines.append(f"- `{voc_path.name}` (vocoder) — *missing*")
+
     for name in artifact_names:
         p = ONNX_DIR / name
         if p.is_file():
@@ -147,7 +164,10 @@ def onnx_status() -> str:
         lines.append(f"**quantization.json:** mode=`{manifest.get('mode', '?')}`")
 
     lines.append("")
-    lines.append("**Không export ONNX:** Vocos vocoder (PyTorch)")
+    lines.append(
+        "**Vocoder ONNX:** `models/vocoder/mel_spec_24khz.onnx` "
+        "(100 mel → mag/x/y; ISTFT librosa lúc inference)"
+    )
     return "\n".join(lines)
 
 
@@ -222,6 +242,7 @@ def export_zipvoice_onnx(
     export_int8: bool | None = None,
     mixed_config: dict[str, QuantComponent] | None = None,
     keep_quant_only: bool = True,
+    export_vocos: bool = True,
 ) -> ExportResult:
     """Export text_encoder + fm_decoder ONNX from local Vietnamese checkpoint."""
     ok, dep_msg = _check_onnxruntime()
@@ -333,13 +354,32 @@ def export_zipvoice_onnx(
             temp_ctx.cleanup()
 
         te_name, fm_name = onnx_filenames(mode, mixed_cfg)
-        step("[6/6] Export hoàn tất.")
+        step("[6/7] ZipVoice ONNX hoàn tất.")
+        if export_vocos:
+            step("[7/7] Export Vocos vocoder ONNX (100 mel → mag/x/y)...")
+            from vocos_export import export_vocos_onnx
+
+            voc_result = export_vocos_onnx(VOCODER_DIR)
+            if voc_result.ok and voc_result.path:
+                created.append(Path(voc_result.path).name)
+                step(voc_result.message.split("\n")[0])
+            else:
+                step(f"Vocos export thất bại: {voc_result.message}")
+        else:
+            step("[7/7] Bỏ qua export Vocos (chỉ PyTorch).")
+
         size_note = format_sizes(ONNX_DIR, (te_name, fm_name))
+        voc_note = ""
+        if export_vocos and vocos_onnx_ready():
+            voc_note = f"\nVocoder ONNX: `{vocos_onnx_path().name}` trong `models/vocoder/`."
+        elif export_vocos:
+            voc_note = "\nVocoder ONNX: export thất bại — test vẫn dùng PyTorch vocoder."
+        else:
+            voc_note = "\nVocoder: PyTorch only (`models/vocoder/`)."
         msg = "\n".join(log_lines) + (
-            f"\n\nExport xong {len(created)} file vào `{ONNX_DIR}`.\n"
-            f"Mode: **{mode}** · Inference files: {size_note}\n"
-            "Vocos vocoder vẫn dùng PyTorch (`models/vocoder/`).\n"
-            "Copy `models/onnx/` sang ONNX-GUI repo để chạy inference."
+            f"\n\nExport xong {len(created)} file vào `{ONNX_DIR}` (+ vocoder nếu có).\n"
+            f"Mode: **{mode}** · Inference files: {size_note}{voc_note}\n"
+            "Copy `models/onnx/` và `models/vocoder/mel_spec_24khz.onnx` sang ONNX-GUI repo."
         )
         return ExportResult(True, msg, created)
 
@@ -365,6 +405,7 @@ def test_onnx_inference(
     mixed_config: dict[str, QuantComponent] | None = None,
     speed: float = 1.0,
     out_path: Path | None = None,
+    vocoder_mode: str = "pytorch",
 ) -> TestResult:
     ok, dep_msg = _check_onnxruntime()
     if not ok:
@@ -387,8 +428,24 @@ def test_onnx_inference(
     if not prompt_text.strip() or not text.strip():
         return TestResult(False, "Thiếu transcript giọng mẫu hoặc văn bản test.", None, None, None)
 
+    use_onnx_vocoder = str(vocoder_mode).strip().lower() == "onnx"
+    if use_onnx_vocoder and not vocos_onnx_ready():
+        return TestResult(
+            False,
+            "Chọn vocoder ONNX nhưng thiếu `models/vocoder/mel_spec_24khz.onnx`.\n"
+            "Tab Export → bật export Vocos → Export ONNX.",
+            None,
+            None,
+            None,
+        )
+
     try:
-        logger.info("ONNX test start | mode=%s | text_len=%d", mode, len(text))
+        logger.info(
+            "ONNX test start | mode=%s | vocoder=%s | text_len=%d",
+            mode,
+            vocoder_mode,
+            len(text),
+        )
         zv = _import_zipvoice_onnx_stack()
         torch = zv["torch"]
         torchaudio = zv["torchaudio"]
@@ -404,7 +461,17 @@ def test_onnx_inference(
             token_file=str(ONNX_DIR / "tokens.txt"), lang="vi"
         )
         feature_extractor = zv["VocosFbank"]()
-        vocoder = _load_vocoder_local()
+        vocoder = None
+        vocoder_sess = None
+        if use_onnx_vocoder:
+            import onnxruntime as ort
+
+            vocoder_sess = ort.InferenceSession(
+                str(vocos_onnx_path()),
+                providers=["CPUExecutionProvider"],
+            )
+        else:
+            vocoder = _load_vocoder_local()
 
         prompt_audio, sr = torchaudio.load(prompt_wav)
         if sr != SAMPLING_RATE:
@@ -433,7 +500,19 @@ def test_onnx_inference(
             guidance_scale=1.0,
         )
         pred = pred.permute(0, 2, 1) / FEAT_SCALE
-        wav = vocoder.decode(pred).squeeze(1).clamp(-1, 1)
+        if use_onnx_vocoder:
+            from vocos_export import decode_mag_xy_with_librosa
+
+            mag, x, y = vocoder_sess.run(
+                None,
+                {"mels": pred.cpu().numpy().astype("float32")},
+            )
+            wav_np = decode_mag_xy_with_librosa(mag, x, y)
+            wav = torch.from_numpy(wav_np).unsqueeze(0)
+            vocoder_label = "ONNX mag/x/y + librosa ISTFT"
+        else:
+            wav = vocoder.decode(pred).squeeze(1).clamp(-1, 1)
+            vocoder_label = "PyTorch Vocos"
         if prompt_rms < TARGET_RMS:
             wav = wav * prompt_rms / TARGET_RMS
         elapsed = time.perf_counter() - t0
@@ -451,7 +530,7 @@ def test_onnx_inference(
             f"- Mode: {mode} · Models: {size_note}\n"
             f"- Audio: {dur:.2f}s · RTF {rtf:.3f}\n"
             f"- File: `{out}`\n"
-            f"- Vocoder: PyTorch Vocos (như upstream)",
+            f"- Vocoder: {vocoder_label}",
             str(out),
             rtf,
             dur,

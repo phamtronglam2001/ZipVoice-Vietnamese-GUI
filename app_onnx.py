@@ -52,6 +52,7 @@ def do_export(
     mixed_te: str,
     mixed_fm: str,
     keep_quant_only: bool,
+    export_vocos: bool,
     progress=gr.Progress(),
 ) -> tuple[str, str, str]:
     from onnx_quant import DEFAULT_MIXED_CONFIG
@@ -74,6 +75,7 @@ def do_export(
             quant_mode,
             mixed_config=mixed_config,
             keep_quant_only=keep_quant_only and quant_mode != "fp32",
+            export_vocos=export_vocos,
         )
         progress(1.0, desc="Xong" if result.ok else "Lỗi")
         log = result.message
@@ -112,6 +114,7 @@ def do_test_onnx(
     quant_mode: str,
     mixed_te: str,
     mixed_fm: str,
+    vocoder_mode: str,
     speed: float,
     progress=gr.Progress(),
 ) -> tuple[str, str | None, str]:
@@ -131,6 +134,7 @@ def do_test_onnx(
         quant_mode=quant_mode,
         mixed_config=mixed_config,
         speed=speed,
+        vocoder_mode=vocoder_mode,
     )
     progress(1.0, desc="Xong" if result.ok else "Lỗi")
     return result.message, result.wav_path, _tail_log()
@@ -203,6 +207,11 @@ def build_ui() -> gr.Blocks:
                 value=True,
                 info="FP32 export vào temp; models/onnx/ chỉ còn bản quant (+ FP32 component nếu mixed)",
             )
+            export_vocos = gr.Checkbox(
+                label="Export Vocos ONNX (100 mel → mag/x/y)",
+                value=True,
+                info="Ghi `models/vocoder/mel_spec_24khz.onnx` — ISTFT librosa lúc inference (khớp ONNX-GUI)",
+            )
             with gr.Row():
                 mixed_te = gr.Dropdown(
                     label="Mixed: text_encoder",
@@ -237,7 +246,7 @@ def build_ui() -> gr.Blocks:
 
             btn_export.click(
                 do_export,
-                inputs=[quant_mode, mixed_te, mixed_fm, keep_quant_only],
+                inputs=[quant_mode, mixed_te, mixed_fm, keep_quant_only, export_vocos],
                 outputs=[export_log, export_env, log_box],
             )
 
@@ -284,6 +293,12 @@ def build_ui() -> gr.Blocks:
             test_quant_mode.change(
                 _toggle_mixed, inputs=[test_quant_mode], outputs=[test_mixed_te, test_mixed_fm]
             )
+            test_vocoder = gr.Radio(
+                label="Vocoder cho Test ONNX",
+                choices=["pytorch", "onnx"],
+                value="pytorch",
+                info="onnx = mel_spec_24khz.onnx + librosa ISTFT (100 mel)",
+            )
             speed = gr.Slider(0.5, 2.0, value=1.0, step=0.1, label="Tốc độ")
 
             with gr.Row():
@@ -309,6 +324,7 @@ def build_ui() -> gr.Blocks:
                     test_quant_mode,
                     test_mixed_te,
                     test_mixed_fm,
+                    test_vocoder,
                     speed,
                 ],
                 outputs=[test_log, test_audio, log_box],
